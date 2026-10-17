@@ -1,0 +1,23 @@
+
+{
+  "manifest_version": 3,
+  "name": "AI Text Summarizer",
+  "version": "1.0",
+  "description": "Быстрый AI-анализ текста на любой странице",
+  "permissions": [
+    "activeTab",
+    "scripting"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:8000/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": "icon128.png"
+  },
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  }
+}
