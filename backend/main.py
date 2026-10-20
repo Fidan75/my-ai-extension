@@ -1,5 +1,8 @@
+
 import os
 import time
+
+import psycopg
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,9 +12,13 @@ from google import genai
 load_dotenv()
 
 api_key = os.getenv("GEMINI_API_KEY")
+database_url = os.getenv("DATABASE_URL")
 
 if not api_key:
     raise RuntimeError("GEMINI_API_KEY is missing from environment variables")
+
+if not database_url:
+    raise RuntimeError("DATABASE_URL is missing from environment variables")
 
 client = genai.Client(api_key=api_key)
 
@@ -25,8 +32,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-USAGE_TRACKER = {}
-PAID_USERS = set()
+
+def get_db_connection():
+    return psycopg.connect(database_url)
+
+
+@app.on_event("startup")
+def setup_database():
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS daily_usage (
+                    user_id TEXT NOT NULL,
+                    usage_date DATE NOT NULL,
+                    count INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (user_id, usage_date)
+                )
+            """)
 
 
 class SummaryRequest(BaseModel):
@@ -41,19 +63,37 @@ def home():
 
 @app.post("/summarize")
 def summarize(request: SummaryRequest):
-    user_id = request.user_id
+    user_id = request.user_id.strip() or "anonymous"
 
-    # Лимит для бесплатной версии (10 запросов в день)
-    if user_id not in PAID_USERS:
-        current_usage = USAGE_TRACKER.get(user_id, 0)
-        if current_usage >= 10:
-            raise HTTPException(
-                status_code=429,
-                detail="Free limit reached (10 summaries/day). Upgrade to Pro for unlimited access!",
-            )
-        USAGE_TRACKER[user_id] = current_usage + 1
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO daily_usage (user_id, usage_date, count)
+                    VALUES (%s, CURRENT_DATE, 1)
+                    ON CONFLICT (user_id, usage_date)
+                    DO UPDATE SET count = daily_usage.count + 1
+                    WHERE daily_usage.count < 10
+                    RETURNING count
+                """, (user_id,))
 
-    # Использование актуальных моделей Gemini 3.x
+                result = cur.fetchone()
+
+                if result is None:
+                    raise HTTPException(
+                        status_code=429,
+                        detail="Free limit reached (10 summaries/day). Upgrade to Pro for unlimited access!",
+                    )
+
+    except HTTPException:
+        raise
+    except Exception as error:
+        print("Database usage check failed:", error)
+        raise HTTPException(
+            status_code=503,
+            detail="Usage service temporarily unavailable. Please try again later.",
+        )
+
     models_to_try = [
         "gemini-3.8-flash",
         "gemini-3.5-flash",
