@@ -1,4 +1,3 @@
-
 {
   "manifest_version": 3,
   "name": "AI Text Summarizer",
@@ -6,10 +5,11 @@
   "description": "Быстрый AI-анализ текста на любой странице",
   "permissions": [
     "activeTab",
-    "scripting"
+    "scripting",
+    "storage"
   ],
   "host_permissions": [
-    "http://127.0.0.1:8000/*"
+    "https://my-ai-extension-backend.onrender.com/*"
   ],
   "action": {
     "default_popup": "popup.html",

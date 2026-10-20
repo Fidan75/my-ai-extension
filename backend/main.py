@@ -25,7 +25,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# In-memory user usage tracker (10 free requests per day)
 USAGE_TRACKER = {}
 PAID_USERS = set()
 
@@ -44,7 +43,7 @@ def home():
 def summarize(request: SummaryRequest):
     user_id = request.user_id
 
-    # 1. Monetization Check: Limit free users to 10 daily requests
+    # Лимит для бесплатной версии (10 запросов в день)
     if user_id not in PAID_USERS:
         current_usage = USAGE_TRACKER.get(user_id, 0)
         if current_usage >= 10:
@@ -54,11 +53,10 @@ def summarize(request: SummaryRequest):
             )
         USAGE_TRACKER[user_id] = current_usage + 1
 
-    # 2. Reliable Model Fallback Cascade
+    # Только актуальные и поддерживаемые модели Gemini 2.x
     models_to_try = [
         "gemini-2.5-flash",
         "gemini-2.0-flash",
-        "gemini-1.5-flash",
     ]
 
     last_error = ""
@@ -81,7 +79,6 @@ def summarize(request: SummaryRequest):
             last_error = str(error)
             time.sleep(0.5)
 
-    # 3. Return explicit error if all fallback models fail
     raise HTTPException(
         status_code=502,
         detail=f"Gemini request failed: {last_error}",
