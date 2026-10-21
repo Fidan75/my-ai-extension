@@ -60,6 +60,32 @@ class SummaryRequest(BaseModel):
 def home():
     return {"message": "AI Summarizer backend is running"}
 
+@app.get("/usage/{user_id}")
+def get_usage(user_id: str):
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT count
+                    FROM daily_usage
+                    WHERE user_id = %s
+                    AND usage_date = CURRENT_DATE
+                """, (user_id,))
+
+                result = cur.fetchone()
+
+                return {
+                    "user_id": user_id,
+                    "used_today": result[0] if result else 0,
+                    "daily_limit": 10
+                }
+
+    except Exception as error:
+        print("Usage check failed:", error)
+        raise HTTPException(
+            status_code=503,
+            detail="Could not retrieve usage."
+        ) 
 
 @app.post("/summarize")
 def summarize(request: SummaryRequest):
