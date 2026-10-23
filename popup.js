@@ -1,25 +1,109 @@
-// Helper function to get or create a unique User ID stored locally in Chrome
-async function getUserId() {
-  let { userId } = await chrome.storage.local.get("userId");
-  if (!userId) {
-    userId = "user_" + Math.random().toString(36).substring(2, 11);
-    await chrome.storage.local.set({ userId });
-  }
-  return userId;
+
+const resultDiv = document.getElementById("result");
+const authSection = document.getElementById("authSection");
+const appSection = document.getElementById("appSection");
+const emailInput = document.getElementById("email");
+const passwordInput = document.getElementById("password");
+
+const API_URL = "https://my-ai-extension-backend.onrender.com";
+
+function showMessage(message) {
+  resultDiv.textContent = message;
 }
 
-document.getElementById('runBtn').addEventListener('click', async () => {
-  const resultDiv = document.getElementById('result');
-  resultDiv.innerText = "Думаю...";
+async function updateLoginState() {
+  const token = await getAccessToken();
+
+  authSection.hidden = Boolean(token);
+  appSection.hidden = !token;
+
+  if (token) {
+    document.getElementById("accountInfo").textContent =
+      "You are logged in.";
+    showMessage("Select text on a webpage, then click Summarize Text.");
+  }
+}
+
+document.getElementById("signupBtn").addEventListener("click", async () => {
+  const email = emailInput.value.trim();
+  const password = passwordInput.value;
+
+  if (!email || !password) {
+    showMessage("Please enter your email and password.");
+    return;
+  }
+
+  if (password.length < 6) {
+    showMessage("Your password must be at least 6 characters.");
+    return;
+  }
+
+  showMessage("Creating your account...");
 
   try {
-    // 1. Get the current active browser tab
+    const data = await signUp(email, password);
+
+    if (!data.access_token) {
+      showMessage("Account created! Check your email to confirm your account, then log in.");
+      return;
+    }
+
+    await signIn(email, password);
+    await updateLoginState();
+  } catch (error) {
+    showMessage("Sign-up error: " + error.message);
+  }
+});
+
+document.getElementById("loginBtn").addEventListener("click", async () => {
+  const email = emailInput.value.trim();
+  const password = passwordInput.value;
+
+  if (!email || !password) {
+    showMessage("Please enter your email and password.");
+    return;
+  }
+
+  showMessage("Logging in...");
+
+  try {
+    await signIn(email, password);
+    await updateLoginState();
+  } catch (error) {
+    showMessage("Login error: " + error.message);
+  }
+});
+
+document.getElementById("logoutBtn").addEventListener("click", async () => {
+  try {
+    await signOut();
+    authSection.hidden = false;
+    appSection.hidden = true;
+    passwordInput.value = "";
+    showMessage("You have logged out.");
+  } catch (error) {
+    showMessage("Logout error: " + error.message);
+  }
+});
+
+document.getElementById("runBtn").addEventListener("click", async () => {
+  showMessage("Думаю...");
+
+  try {
+    const token = await getAccessToken();
+
+    if (!token) {
+      authSection.hidden = false;
+      appSection.hidden = true;
+      showMessage("Please log in again.");
+      return;
+    }
+
     const [tab] = await chrome.tabs.query({
       active: true,
       currentWindow: true
     });
 
-    // 2. Extract selected text from the active web page
     const results = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       func: () => window.getSelection().toString()
@@ -28,76 +112,53 @@ document.getElementById('runBtn').addEventListener('click', async () => {
     const selectedText = results[0]?.result;
 
     if (!selectedText || selectedText.trim() === "") {
-      resultDiv.innerText = "Ошибка: сначала выделите текст на странице!";
+      showMessage("Error: First select text on the webpage!");
       return;
     }
 
-    // 3. Get unique user ID
-    const userId = await getUserId();
-
-    // 4. Send request to your LIVE Render backend
-    const response = await fetch(
-      "https://my-ai-extension-backend.onrender.com/summarize",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          text: selectedText,
-          user_id: userId
-        })
-      }
-    );
+    const response = await fetch(`${API_URL}/summarize`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        text: selectedText
+      })
+    });
 
     const data = await response.json();
 
-    // 5. Handle Rate Limits (HTTP 429 - Free limit reached)
-    if (response.status === 429) {
-      resultDiv.innerHTML = `
-        <p style="color: #d9534f; font-weight: bold;">Лимит исчерпан!</p>
-        <p>${data.detail || "Вы использовали 10 бесплатных суммаризаций на сегодня."}</p>
-        <button id="checkoutBtn" style="background-color: #28a745; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer;">
-          Перейти на Pro ($4.99/мес)
-        </button>
-      `;
-
-      // Attach click event to the dynamically generated Upgrade button
-      document.getElementById('checkoutBtn').addEventListener('click', async () => {
-        try {
-          const checkoutResponse = await fetch("https://my-ai-extension-backend.onrender.com/create-checkout", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ user_id: userId })
-          });
-          
-          const checkoutData = await checkoutResponse.json();
-          if (checkoutData.checkout_url) {
-            chrome.tabs.create({ url: checkoutData.checkout_url });
-          } else {
-            alert("Не удалось создать ссылку на оплату.");
-          }
-        } catch (err) {
-          alert("Ошибка оплаты: " + err.message);
-        }
-      });
-
+    if (response.status === 401) {
+      await signOut();
+      authSection.hidden = false;
+      appSection.hidden = true;
+      showMessage("Your session expired. Please log in again.");
       return;
     }
 
-    // 6. Handle other error codes
+    if (response.status === 429) {
+      showMessage(
+        "Daily free limit reached!\n\n" +
+        (data.detail || "You have used your 10 free summaries for today.")
+      );
+      return;
+    }
+
     if (!response.ok) {
       throw new Error(
         typeof data.detail === "string"
           ? data.detail
-          : "Ошибка запроса к серверу"
+          : "Request failed."
       );
     }
 
-    // 7. Display the AI summary
-    resultDiv.innerText = data.summary;
-
+    showMessage(data.summary);
   } catch (error) {
-    resultDiv.innerText = "Ошибка: " + error.message;
+    showMessage("Error: " + error.message);
   }
+});
+
+updateLoginState().catch((error) => {
+  showMessage("Could not check login: " + error.message);
 });

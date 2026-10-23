@@ -1,3 +1,4 @@
+
 {
   "manifest_version": 3,
   "name": "AI Text Summarizer",
@@ -9,7 +10,8 @@
     "storage"
   ],
   "host_permissions": [
-    "https://my-ai-extension-backend.onrender.com/*"
+    "https://my-ai-extension-backend.onrender.com/*",
+    "https://qjcnhwvrmierkoexurlk.supabase.co/*"
   ],
   "action": {
     "default_popup": "popup.html",

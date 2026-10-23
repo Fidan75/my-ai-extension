@@ -16,9 +16,19 @@
       color: #333;
       font-size: 16px;
     }
+    input {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 10px;
+      margin-bottom: 8px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 13px;
+    }
     button {
       width: 100%;
       padding: 10px;
+      margin-bottom: 8px;
       background-color: #007AFF;
       color: white;
       border: none;
@@ -30,8 +40,14 @@
     button:hover {
       background-color: #0056b3;
     }
+    #signupBtn {
+      background-color: #555;
+    }
+    #logoutBtn {
+      background-color: #777;
+    }
     #result {
-      margin-top: 12px;
+      margin-top: 8px;
       padding: 10px;
       background: white;
       border: 1px solid #ddd;
@@ -40,13 +56,30 @@
       line-height: 1.4;
       color: #444;
       min-height: 40px;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
     }
   </style>
 </head>
 <body>
   <h3>AI Summarizer</h3>
-  <button id="runBtn">Summarize Text</button>
-  <div id="result">Select text on the page and click the button.</div>
+
+  <div id="authSection">
+    <input id="email" type="email" placeholder="Email address" autocomplete="email">
+    <input id="password" type="password" placeholder="Password (at least 6 characters)" autocomplete="current-password">
+    <button id="loginBtn">Log In</button>
+    <button id="signupBtn">Create Account</button>
+  </div>
+
+  <div id="appSection" hidden>
+    <p id="accountInfo"></p>
+    <button id="runBtn">Summarize Text</button>
+    <button id="logoutBtn">Log Out</button>
+  </div>
+
+  <div id="result">Log in or create an account to get started.</div>
+
+  <script src="supabase.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

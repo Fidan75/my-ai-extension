@@ -1,11 +1,14 @@
 
 import os
 import time
-
+import jwt
 import psycopg
+
+from jwt import PyJWKClient
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 from google import genai
 
@@ -13,6 +16,7 @@ load_dotenv()
 
 api_key = os.getenv("GEMINI_API_KEY")
 database_url = os.getenv("DATABASE_URL")
+supabase_url = os.getenv("SUPABASE_URL")
 
 if not api_key:
     raise RuntimeError("GEMINI_API_KEY is missing from environment variables")
@@ -20,7 +24,16 @@ if not api_key:
 if not database_url:
     raise RuntimeError("DATABASE_URL is missing from environment variables")
 
+if not supabase_url:
+    raise RuntimeError("SUPABASE_URL is missing from environment variables")
+
 client = genai.Client(api_key=api_key)
+
+jwks_client = PyJWKClient(
+    f"{supabase_url}/auth/v1/.well-known/jwks.json"
+)
+
+security = HTTPBearer()
 
 app = FastAPI()
 
@@ -35,6 +48,42 @@ app.add_middleware(
 
 def get_db_connection():
     return psycopg.connect(database_url)
+
+
+def verify_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security)
+):
+    token = credentials.credentials
+
+    try:
+        signing_key = jwks_client.get_signing_key_from_jwt(token)
+
+        payload = jwt.decode(
+            token,
+            signing_key.key,
+            algorithms=["ES256"],
+            audience="authenticated",
+            issuer=f"{supabase_url}/auth/v1",
+        )
+
+        user_id = payload.get("sub")
+
+        if not user_id:
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid user token."
+            )
+
+        return user_id
+
+    except HTTPException:
+        raise
+    except Exception as error:
+        print("Token verification failed:", error)
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or expired login token. Please sign in again."
+        )
 
 
 @app.on_event("startup")
@@ -53,15 +102,15 @@ def setup_database():
 
 class SummaryRequest(BaseModel):
     text: str = Field(min_length=1, max_length=20000)
-    user_id: str = "anonymous"
 
 
 @app.get("/")
 def home():
     return {"message": "AI Summarizer backend is running"}
 
-@app.get("/usage/{user_id}")
-def get_usage(user_id: str):
+
+@app.get("/usage")
+def get_usage(user_id: str = Depends(verify_user)):
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
@@ -75,7 +124,6 @@ def get_usage(user_id: str):
                 result = cur.fetchone()
 
                 return {
-                    "user_id": user_id,
                     "used_today": result[0] if result else 0,
                     "daily_limit": 10
                 }
@@ -85,12 +133,14 @@ def get_usage(user_id: str):
         raise HTTPException(
             status_code=503,
             detail="Could not retrieve usage."
-        ) 
+        )
+
 
 @app.post("/summarize")
-def summarize(request: SummaryRequest):
-    user_id = request.user_id.strip() or "anonymous"
-
+def summarize(
+    request: SummaryRequest,
+    user_id: str = Depends(verify_user)
+):
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
@@ -108,7 +158,7 @@ def summarize(request: SummaryRequest):
                 if result is None:
                     raise HTTPException(
                         status_code=429,
-                        detail="Free limit reached (10 summaries/day). Upgrade to Pro for unlimited access!",
+                        detail="Free limit reached (10 summaries/day). Upgrade to Pro for unlimited access!"
                     )
 
     except HTTPException:
@@ -117,7 +167,7 @@ def summarize(request: SummaryRequest):
         print("Database usage check failed:", error)
         raise HTTPException(
             status_code=503,
-            detail="Usage service temporarily unavailable. Please try again later.",
+            detail="Usage service temporarily unavailable. Please try again later."
         )
 
     models_to_try = [
@@ -147,5 +197,5 @@ def summarize(request: SummaryRequest):
 
     raise HTTPException(
         status_code=502,
-        detail=f"Gemini request failed: {last_error}",
+        detail=f"Gemini request failed: {last_error}"
     )

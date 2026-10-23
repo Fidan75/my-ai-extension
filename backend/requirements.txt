@@ -3,3 +3,4 @@ uvicorn
 google-genai
 python-dotenv
 psycopg[binary]>=3.2,<4
+PyJWT[crypto]
