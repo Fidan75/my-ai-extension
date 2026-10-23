@@ -16,7 +16,7 @@ load_dotenv()
 
 api_key = os.getenv("GEMINI_API_KEY")
 database_url = os.getenv("DATABASE_URL")
-supabase_url = os.getenv("SUPABASE_URL")
+supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
 
 if not api_key:
     raise RuntimeError("GEMINI_API_KEY is missing from environment variables")
@@ -141,6 +141,7 @@ def summarize(
     request: SummaryRequest,
     user_id: str = Depends(verify_user)
 ):
+    # Check the user's daily limit.
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
@@ -158,7 +159,7 @@ def summarize(
                 if result is None:
                     raise HTTPException(
                         status_code=429,
-                        detail="Free limit reached (10 summaries/day). Upgrade to Pro for unlimited access!"
+                        detail="Free limit reached (10 summaries/day)."
                     )
 
     except HTTPException:
@@ -170,15 +171,19 @@ def summarize(
             detail="Usage service temporarily unavailable. Please try again later."
         )
 
+    # Try several Gemini models.
     models_to_try = [
         "gemini-3.8-flash",
         "gemini-3.5-flash",
+        "gemini-3.5-flash-lite",
     ]
 
     last_error = ""
 
     for model_name in models_to_try:
         try:
+            print(f"Trying Gemini model: {model_name}")
+
             response = client.models.generate_content(
                 model=model_name,
                 contents=(
@@ -190,12 +195,19 @@ def summarize(
             if response and response.text:
                 return {"summary": response.text}
 
+            last_error = f"{model_name} returned an empty response."
+
         except Exception as error:
-            print(f"Error with model {model_name}:", error)
-            last_error = str(error)
+            print(f"Error with model {model_name}: {error}")
+            last_error = f"{model_name}: {error}"
             time.sleep(0.5)
+
+    print("All Gemini models failed:", last_error)
 
     raise HTTPException(
         status_code=502,
-        detail=f"Gemini request failed: {last_error}"
+        detail=(
+            "The AI service is temporarily unavailable. "
+            "Please try again later."
+        )
     )
