@@ -24,9 +24,13 @@ api_key = os.getenv("GEMINI_API_KEY")
 database_url = os.getenv("DATABASE_URL")
 supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
 
-paddle_api_key = os.getenv("PADDLE_API_KEY")
+paddle_api_key = (
+    os.getenv("PADDLE_API_KEY", "")
+    .replace("\n", "")
+    .replace("\r", "")
+    .strip()
+)
 paddle_price_id = os.getenv("PADDLE_PRICE_ID")
-
 
 # Check required configuration
 if not api_key:
