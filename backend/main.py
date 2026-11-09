@@ -32,10 +32,8 @@ paddle_api_key = (
     .strip()
 )
 
-paddle_price_id = os.getenv("PADDLE_PRICE_ID")
-paddle_webhook_secret = os.getenv(
-    "PADDLE_WEBHOOK_SECRET", ""
-).strip()
+paddle_price_id = os.getenv("PADDLE_PRICE_ID", "").strip()
+paddle_webhook_secret = os.getenv("PADDLE_WEBHOOK_SECRET", "").strip()
 
 
 # Check required configuration
@@ -48,8 +46,15 @@ if not database_url:
 if not supabase_url:
     raise RuntimeError("SUPABASE_URL is missing")
 
-if not paddle_api_key or not paddle_price_id:
-    raise RuntimeError("Paddle configuration is missing")
+# Paddle configuration is checked when Paddle features are used.
+# This allows the rest of the API to start even if a Paddle variable
+# is missing or was not attached to this Render service.
+print("CONFIG: GEMINI_API_KEY loaded:", bool(api_key))
+print("CONFIG: DATABASE_URL loaded:", bool(database_url))
+print("CONFIG: SUPABASE_URL loaded:", bool(supabase_url))
+print("CONFIG: PADDLE_API_KEY loaded:", bool(paddle_api_key))
+print("CONFIG: PADDLE_PRICE_ID loaded:", bool(paddle_price_id))
+print("CONFIG: PADDLE_WEBHOOK_SECRET loaded:", bool(paddle_webhook_secret))
 
 
 # Initialize services
@@ -377,6 +382,13 @@ def create_checkout(user_id: str = Depends(verify_user)):
 
     print("CHECKOUT: Request received")
 
+    if not paddle_api_key or not paddle_price_id:
+        print("CHECKOUT: Paddle API key or price ID is not configured")
+        raise HTTPException(
+            status_code=503,
+            detail="Paddle checkout is not configured. Please try again later."
+        )
+
     payload = {
         "items": [
             {
@@ -466,6 +478,13 @@ def create_checkout(user_id: str = Depends(verify_user)):
 # Paddle webhook endpoint
 @app.post("/paddle-webhook")
 async def paddle_webhook(request: Request):
+
+    if not paddle_webhook_secret:
+        print("WEBHOOK: PADDLE_WEBHOOK_SECRET is not configured")
+        raise HTTPException(
+            status_code=503,
+            detail="Paddle webhook is not configured."
+        )
 
     # Read original body before parsing JSON
     raw_body = await request.body()
