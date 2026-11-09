@@ -5,7 +5,7 @@ const appSection = document.getElementById("appSection");
 const emailInput = document.getElementById("email");
 const passwordInput = document.getElementById("password");
 
-const API_URL = "https://my-ai-extension-backend.onrender.com";
+const API_URL = "http://127.0.0.1:8000";
 
 function showMessage(message) {
   resultDiv.textContent = message;
@@ -44,7 +44,9 @@ document.getElementById("signupBtn").addEventListener("click", async () => {
     const data = await signUp(email, password);
 
     if (!data.access_token) {
-      showMessage("Account created! Check your email to confirm your account, then log in.");
+      showMessage(
+        "Account created! Check your email to confirm your account, then log in."
+      );
       return;
     }
 
@@ -87,7 +89,7 @@ document.getElementById("logoutBtn").addEventListener("click", async () => {
 });
 
 document.getElementById("runBtn").addEventListener("click", async () => {
-  showMessage("Думаю...");
+  showMessage("Summarizing...");
 
   try {
     const token = await getAccessToken();
@@ -112,7 +114,7 @@ document.getElementById("runBtn").addEventListener("click", async () => {
     const selectedText = results[0]?.result;
 
     if (!selectedText || selectedText.trim() === "") {
-      showMessage("Error: First select text on the webpage!");
+      showMessage("Please select text on the webpage first.");
       return;
     }
 
@@ -122,9 +124,7 @@ document.getElementById("runBtn").addEventListener("click", async () => {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${token}`
       },
-      body: JSON.stringify({
-        text: selectedText
-      })
+      body: JSON.stringify({ text: selectedText })
     });
 
     const data = await response.json();
@@ -147,15 +147,48 @@ document.getElementById("runBtn").addEventListener("click", async () => {
 
     if (!response.ok) {
       throw new Error(
-        typeof data.detail === "string"
-          ? data.detail
-          : "Request failed."
+        typeof data.detail === "string" ? data.detail : "Request failed."
       );
     }
 
     showMessage(data.summary);
   } catch (error) {
     showMessage("Error: " + error.message);
+  }
+});
+
+document.getElementById("upgradeBtn").addEventListener("click", async () => {
+  showMessage("Opening secure checkout...");
+
+  try {
+    const token = await getAccessToken();
+
+    if (!token) {
+      showMessage("Please log in again.");
+      return;
+    }
+
+    const response = await fetch(`${API_URL}/create-checkout`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${token}`
+      }
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.detail || "Could not create checkout.");
+    }
+
+    if (!data.checkout_url) {
+      throw new Error("Checkout URL was not returned.");
+    }
+
+    await chrome.tabs.create({ url: data.checkout_url });
+    showMessage("Checkout page opened successfully.");
+  } catch (error) {
+    showMessage("Checkout error: " + error.message);
   }
 });
 

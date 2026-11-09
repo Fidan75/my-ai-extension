@@ -1,15 +1,16 @@
 
 {
   "manifest_version": 3,
-  "name": "AI Text Summarizer",
+  "name": "Sumora AI",
   "version": "1.0",
-  "description": "Быстрый AI-анализ текста на любой странице",
+  "description": "AI-powered text summarization for any webpage.",
   "permissions": [
     "activeTab",
     "scripting",
     "storage"
   ],
   "host_permissions": [
+    "http://127.0.0.1:8000/*",
     "https://my-ai-extension-backend.onrender.com/*",
     "https://qjcnhwvrmierkoexurlk.supabase.co/*"
   ],
