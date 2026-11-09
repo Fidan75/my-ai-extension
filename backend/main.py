@@ -1,6 +1,10 @@
 
 import os
 import time
+import json
+import urllib.request
+import urllib.error
+
 import jwt
 import psycopg
 
@@ -12,21 +16,33 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 from google import genai
 
+
+# Load environment variables
 load_dotenv()
 
 api_key = os.getenv("GEMINI_API_KEY")
 database_url = os.getenv("DATABASE_URL")
 supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
 
+paddle_api_key = os.getenv("PADDLE_API_KEY")
+paddle_price_id = os.getenv("PADDLE_PRICE_ID")
+
+
+# Check required configuration
 if not api_key:
-    raise RuntimeError("GEMINI_API_KEY is missing from environment variables")
+    raise RuntimeError("GEMINI_API_KEY is missing")
 
 if not database_url:
-    raise RuntimeError("DATABASE_URL is missing from environment variables")
+    raise RuntimeError("DATABASE_URL is missing")
 
 if not supabase_url:
-    raise RuntimeError("SUPABASE_URL is missing from environment variables")
+    raise RuntimeError("SUPABASE_URL is missing")
 
+if not paddle_api_key or not paddle_price_id:
+    raise RuntimeError("Paddle configuration is missing")
+
+
+# Initialize services
 client = genai.Client(api_key=api_key)
 
 jwks_client = PyJWKClient(
@@ -37,6 +53,8 @@ security = HTTPBearer()
 
 app = FastAPI()
 
+
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -46,10 +64,12 @@ app.add_middleware(
 )
 
 
+# Database connection
 def get_db_connection():
     return psycopg.connect(database_url)
 
 
+# Verify Supabase user
 def verify_user(
     credentials: HTTPAuthorizationCredentials = Depends(security)
 ):
@@ -78,14 +98,17 @@ def verify_user(
 
     except HTTPException:
         raise
+
     except Exception as error:
-        print("Token verification failed:", error)
+        print("Token verification failed:", str(error))
+
         raise HTTPException(
             status_code=401,
             detail="Invalid or expired login token. Please sign in again."
         )
 
 
+# Create database table
 @app.on_event("startup")
 def setup_database():
     with get_db_connection() as conn:
@@ -100,15 +123,20 @@ def setup_database():
             """)
 
 
+# Request model
 class SummaryRequest(BaseModel):
     text: str = Field(min_length=1, max_length=20000)
 
 
+# Home endpoint
 @app.get("/")
 def home():
-    return {"message": "AI Summarizer backend is running"}
+    return {
+        "message": "AI Summarizer backend is running"
+    }
 
 
+# Get daily usage
 @app.get("/usage")
 def get_usage(user_id: str = Depends(verify_user)):
     try:
@@ -129,19 +157,21 @@ def get_usage(user_id: str = Depends(verify_user)):
                 }
 
     except Exception as error:
-        print("Usage check failed:", error)
+        print("Usage check failed:", str(error))
+
         raise HTTPException(
             status_code=503,
             detail="Could not retrieve usage."
         )
 
 
+# Summarize endpoint
 @app.post("/summarize")
 def summarize(
     request: SummaryRequest,
     user_id: str = Depends(verify_user)
 ):
-    # Check the user's daily limit.
+    # Check daily limit
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
@@ -164,14 +194,16 @@ def summarize(
 
     except HTTPException:
         raise
+
     except Exception as error:
-        print("Database usage check failed:", error)
+        print("Database usage check failed:", str(error))
+
         raise HTTPException(
             status_code=503,
             detail="Usage service temporarily unavailable. Please try again later."
         )
 
-    # Try several Gemini models.
+    # Try Gemini models
     models_to_try = [
         "gemini-3.8-flash",
         "gemini-3.5-flash",
@@ -193,7 +225,9 @@ def summarize(
             )
 
             if response and response.text:
-                return {"summary": response.text}
+                return {
+                    "summary": response.text
+                }
 
             last_error = f"{model_name} returned an empty response."
 
@@ -206,8 +240,98 @@ def summarize(
 
     raise HTTPException(
         status_code=502,
-        detail=(
-            "The AI service is temporarily unavailable. "
-            "Please try again later."
-        )
+        detail="The AI service is temporarily unavailable. Please try again later."
     )
+
+
+# Paddle checkout endpoint
+@app.post("/create-checkout")
+def create_checkout(user_id: str = Depends(verify_user)):
+
+    print("CHECKOUT: Request received")
+
+    payload = {
+        "items": [
+            {
+                "price_id": paddle_price_id,
+                "quantity": 1
+            }
+        ],
+        "custom_data": {
+            "user_id": user_id
+        }
+    }
+
+    paddle_request = urllib.request.Request(
+        "https://sandbox-api.paddle.com/transactions",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {paddle_api_key}",
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        },
+        method="POST"
+    )
+
+    try:
+        with urllib.request.urlopen(
+            paddle_request,
+            timeout=30
+        ) as response:
+
+            response_body = response.read().decode("utf-8")
+            result = json.loads(response_body)
+
+            print("CHECKOUT: Paddle HTTP status:", response.status)
+
+            request_id = response.headers.get("Paddle-Request-Id")
+            print("CHECKOUT: Paddle request ID:", request_id)
+
+        transaction = result.get("data", {})
+        checkout = transaction.get("checkout") or {}
+        checkout_url = checkout.get("url")
+
+        if not checkout_url:
+            print("CHECKOUT: Paddle did not return a checkout URL")
+            print("CHECKOUT: Paddle response:", result)
+
+            raise HTTPException(
+                status_code=502,
+                detail="Paddle did not return a checkout URL."
+            )
+
+        print("CHECKOUT: Checkout URL created successfully")
+
+        return {
+            "checkout_url": checkout_url
+        }
+
+    except urllib.error.HTTPError as error:
+
+        error_body = error.read().decode(
+            "utf-8",
+            errors="replace"
+        )
+
+        print("CHECKOUT: Paddle HTTP status:", error.code)
+        print(
+            "CHECKOUT: Paddle request ID:",
+            error.headers.get("Paddle-Request-Id")
+        )
+        print("CHECKOUT: Paddle error response:", error_body)
+
+        raise HTTPException(
+            status_code=502,
+            detail="Paddle rejected the checkout request."
+        )
+
+    except HTTPException:
+        raise
+
+    except Exception as error:
+        print("CHECKOUT: Unexpected error:", repr(error))
+
+        raise HTTPException(
+            status_code=500,
+            detail="Could not create checkout."
+        )
