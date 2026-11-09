@@ -161,6 +161,19 @@
     footer a {
       color: #b5a5ff;
       margin: 0 10px;
+      text-decoration: none;
+    }
+
+    footer a:hover {
+      text-decoration: underline;
+    }
+
+    .footer-links {
+      margin-top: 12px;
+    }
+
+    .support {
+      margin-top: 12px;
     }
 
     @media (max-width: 600px) {
@@ -253,10 +266,19 @@
 
   <footer>
     <p>© 2026 Sumora AI. All rights reserved.</p>
-    <p>
+
+    <div class="footer-links">
       <a href="https://github.com/Fidan75/my-ai-extension">
-        Project & Support
+        Project
       </a>
+
+      <a href="mailto:sumoraaisupport@gmail.com">
+        Contact Support
+      </a>
+    </div>
+
+    <p class="support">
+      Support: sumoraaisupport@gmail.com
     </p>
   </footer>
 
