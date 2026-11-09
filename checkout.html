@@ -1,0 +1,50 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sumora AI - Secure Checkout</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f7f8fc;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      margin: 0;
+      color: #222;
+    }
+    .container {
+      text-align: center;
+      background: white;
+      padding: 40px;
+      border-radius: 16px;
+      max-width: 420px;
+      width: calc(100% - 48px);
+      box-sizing: border-box;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.07);
+    }
+    h1 { margin-top: 0; }
+    p { color: #666; line-height: 1.5; }
+  </style>
+
+  <script src="https://cdn.paddle.com/paddle/v2/paddle.js"></script>
+</head>
+<body>
+  <div class="container">
+    <h1>Sumora AI</h1>
+    <p>Preparing your secure checkout...</p>
+    <p>If checkout does not open, please return to the extension and try again.</p>
+  </div>
+
+  <script>
+    Paddle.Environment.set("sandbox");
+
+    Paddle.Initialize({
+      token: test_e14bb4c4e8619963114157a17aa
+    });
+  </script>
+</body>
+</html>
