@@ -1,3 +1,4 @@
+
 import os
 import time
 import json
@@ -18,11 +19,14 @@ from pydantic import BaseModel, Field
 from google import genai
 
 
-# Load environment variables
+# --------------------------------------------------
+# ENVIRONMENT CONFIGURATION
+# --------------------------------------------------
+
 load_dotenv()
 
-api_key = os.getenv("GEMINI_API_KEY")
-database_url = os.getenv("DATABASE_URL")
+api_key = os.getenv("GEMINI_API_KEY", "").strip()
+database_url = os.getenv("DATABASE_URL", "").strip()
 supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
 
 paddle_api_key = (
@@ -33,10 +37,21 @@ paddle_api_key = (
 )
 
 paddle_price_id = os.getenv("PADDLE_PRICE_ID", "").strip()
-paddle_webhook_secret = os.getenv("PADDLE_WEBHOOK_SECRET", "").strip()
+
+paddle_webhook_secret = (
+    os.getenv("PADDLE_WEBHOOK_SECRET", "").strip()
+)
+
+gemini_model = os.getenv(
+    "GEMINI_MODEL",
+    "gemini-2.5-flash"
+).strip()
 
 
-# Check required configuration
+# --------------------------------------------------
+# REQUIRED CONFIGURATION CHECKS
+# --------------------------------------------------
+
 if not api_key:
     raise RuntimeError("GEMINI_API_KEY is missing")
 
@@ -46,18 +61,17 @@ if not database_url:
 if not supabase_url:
     raise RuntimeError("SUPABASE_URL is missing")
 
-# Paddle configuration is checked when Paddle features are used.
-# This allows the rest of the API to start even if a Paddle variable
-# is missing or was not attached to this Render service.
-print("CONFIG: GEMINI_API_KEY loaded:", bool(api_key))
-print("CONFIG: DATABASE_URL loaded:", bool(database_url))
-print("CONFIG: SUPABASE_URL loaded:", bool(supabase_url))
-print("CONFIG: PADDLE_API_KEY loaded:", bool(paddle_api_key))
-print("CONFIG: PADDLE_PRICE_ID loaded:", bool(paddle_price_id))
-print("CONFIG: PADDLE_WEBHOOK_SECRET loaded:", bool(paddle_webhook_secret))
+if not paddle_api_key:
+    raise RuntimeError("PADDLE_API_KEY is missing")
+
+if not paddle_price_id:
+    raise RuntimeError("PADDLE_PRICE_ID is missing")
 
 
-# Initialize services
+# --------------------------------------------------
+# INITIALIZE SERVICES
+# --------------------------------------------------
+
 client = genai.Client(api_key=api_key)
 
 jwks_client = PyJWKClient(
@@ -69,63 +83,30 @@ security = HTTPBearer()
 app = FastAPI()
 
 
+# --------------------------------------------------
 # CORS
+# --------------------------------------------------
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
-# Database connection
+# --------------------------------------------------
+# DATABASE
+# --------------------------------------------------
+
 def get_db_connection():
     return psycopg.connect(database_url)
 
 
-# Verify Supabase user
-def verify_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security)
-):
-    token = credentials.credentials
-
-    try:
-        signing_key = jwks_client.get_signing_key_from_jwt(token)
-
-        payload = jwt.decode(
-            token,
-            signing_key.key,
-            algorithms=["ES256"],
-            audience="authenticated",
-            issuer=f"{supabase_url}/auth/v1",
-        )
-
-        user_id = payload.get("sub")
-
-        if not user_id:
-            raise HTTPException(
-                status_code=401,
-                detail="Invalid user token."
-            )
-
-        return user_id
-
-    except HTTPException:
-        raise
-
-    except Exception as error:
-        print("Token verification failed:", str(error))
-
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid or expired login token. Please sign in again."
-        )
-
-
-# Create database tables
 @app.on_event("startup")
 def setup_database():
+
     with get_db_connection() as conn:
         with conn.cursor() as cur:
 
@@ -160,35 +141,105 @@ def setup_database():
                 )
             """)
 
+    print("DATABASE: Tables ready")
 
-# Request model
+
+# --------------------------------------------------
+# SUPABASE AUTHENTICATION
+# --------------------------------------------------
+
+def verify_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security)
+):
+
+    token = credentials.credentials
+
+    try:
+        signing_key = jwks_client.get_signing_key_from_jwt(token)
+
+        token_header = jwt.get_unverified_header(token)
+        algorithm = token_header.get("alg")
+
+        if algorithm not in ["ES256", "RS256"]:
+            raise HTTPException(
+                status_code=401,
+                detail="Unsupported authentication token."
+            )
+
+        payload = jwt.decode(
+            token,
+            signing_key.key,
+            algorithms=[algorithm],
+            audience="authenticated",
+            issuer=f"{supabase_url}/auth/v1",
+        )
+
+        user_id = payload.get("sub")
+
+        if not user_id:
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid user token."
+            )
+
+        return user_id
+
+    except HTTPException:
+        raise
+
+    except Exception as error:
+
+        print("AUTH: Token verification failed:", str(error))
+
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or expired login token. Please sign in again."
+        )
+
+
+# --------------------------------------------------
+# REQUEST MODEL
+# --------------------------------------------------
+
 class SummaryRequest(BaseModel):
-    text: str = Field(min_length=1, max_length=20000)
+    text: str = Field(
+        min_length=1,
+        max_length=20000
+    )
 
 
-# Check whether user has an active Pro subscription
+# --------------------------------------------------
+# SUBSCRIPTION CHECK
+# --------------------------------------------------
+
 def is_pro_user(user_id: str) -> bool:
+
     with get_db_connection() as conn:
         with conn.cursor() as cur:
+
             cur.execute("""
                 SELECT EXISTS (
                     SELECT 1
                     FROM subscriptions
                     WHERE user_id = %s
+                    AND price_id = %s
                     AND status IN ('active', 'trialing')
                     AND (
                         current_period_end IS NULL
                         OR current_period_end > CURRENT_TIMESTAMP
                     )
                 )
-            """, (user_id,))
+            """, (user_id, paddle_price_id))
 
             result = cur.fetchone()
 
             return bool(result[0])
 
 
-# Verify Paddle webhook signature
+# --------------------------------------------------
+# PADDLE SIGNATURE VERIFICATION
+# --------------------------------------------------
+
 def verify_paddle_signature(
     raw_body: bytes,
     signature_header: str
@@ -199,34 +250,47 @@ def verify_paddle_signature(
         return False
 
     if not signature_header:
+        print("WEBHOOK: Signature header is missing")
         return False
 
     parts = {}
 
     for item in signature_header.split(";"):
+
         if "=" in item:
             key, value = item.split("=", 1)
-            parts.setdefault(key.strip(), []).append(value.strip())
+
+            parts.setdefault(
+                key.strip(),
+                []
+            ).append(value.strip())
 
     timestamps = parts.get("ts", [])
     signatures = parts.get("h1", [])
 
     if not timestamps or not signatures:
+        print("WEBHOOK: Signature header format is invalid")
         return False
 
     timestamp = timestamps[0]
 
     try:
         event_timestamp = int(timestamp)
+
     except ValueError:
+        print("WEBHOOK: Invalid signature timestamp")
         return False
 
-    # Reject old or future-dated requests
+    # Reject requests outside the five-minute window
     if abs(time.time() - event_timestamp) > 300:
         print("WEBHOOK: Signature timestamp outside allowed window")
         return False
 
-    signed_payload = timestamp.encode("utf-8") + b":" + raw_body
+    signed_payload = (
+        timestamp.encode("utf-8")
+        + b":"
+        + raw_body
+    )
 
     expected_signature = hmac.new(
         paddle_webhook_secret.encode("utf-8"),
@@ -235,27 +299,40 @@ def verify_paddle_signature(
     ).hexdigest()
 
     return any(
-        hmac.compare_digest(expected_signature, signature)
+        hmac.compare_digest(
+            expected_signature,
+            signature
+        )
         for signature in signatures
     )
 
 
-# Home endpoint
+# --------------------------------------------------
+# HOME
+# --------------------------------------------------
+
 @app.get("/")
 def home():
+
     return {
         "message": "AI Summarizer backend is running"
     }
 
 
-# Get daily usage and plan
+# --------------------------------------------------
+# GET USER USAGE
+# --------------------------------------------------
+
 @app.get("/usage")
 def get_usage(user_id: str = Depends(verify_user)):
+
     try:
+
         pro = is_pro_user(user_id)
 
         with get_db_connection() as conn:
             with conn.cursor() as cur:
+
                 cur.execute("""
                     SELECT count
                     FROM daily_usage
@@ -272,7 +349,8 @@ def get_usage(user_id: str = Depends(verify_user)):
                 }
 
     except Exception as error:
-        print("Usage check failed:", str(error))
+
+        print("USAGE: Check failed:", repr(error))
 
         raise HTTPException(
             status_code=503,
@@ -280,38 +358,52 @@ def get_usage(user_id: str = Depends(verify_user)):
         )
 
 
-# Summarize endpoint
+# --------------------------------------------------
+# SUMMARIZE
+# --------------------------------------------------
+
 @app.post("/summarize")
 def summarize(
     request: SummaryRequest,
     user_id: str = Depends(verify_user)
 ):
-    # Check Pro status
+
+    # Check subscription
     try:
+
         pro = is_pro_user(user_id)
 
     except Exception as error:
-        print("Subscription check failed:", str(error))
+
+        print("SUBSCRIPTION: Check failed:", repr(error))
 
         raise HTTPException(
             status_code=503,
             detail="Could not verify subscription status."
         )
 
-    # Free users have a daily limit of 10
+    # Enforce daily limit for free users
     if not pro:
+
         try:
+
             with get_db_connection() as conn:
                 with conn.cursor() as cur:
+
                     cur.execute("""
                         INSERT INTO daily_usage (
                             user_id,
                             usage_date,
                             count
                         )
-                        VALUES (%s, CURRENT_DATE, 1)
+                        VALUES (
+                            %s,
+                            CURRENT_DATE,
+                            1
+                        )
                         ON CONFLICT (user_id, usage_date)
-                        DO UPDATE SET count = daily_usage.count + 1
+                        DO UPDATE SET
+                            count = daily_usage.count + 1
                         WHERE daily_usage.count < 10
                         RETURNING count
                     """, (user_id,))
@@ -319,6 +411,7 @@ def summarize(
                     result = cur.fetchone()
 
                     if result is None:
+
                         raise HTTPException(
                             status_code=429,
                             detail="Free limit reached (10 summaries/day)."
@@ -328,47 +421,58 @@ def summarize(
             raise
 
         except Exception as error:
-            print("Database usage check failed:", str(error))
+
+            print("USAGE: Database error:", repr(error))
 
             raise HTTPException(
                 status_code=503,
-                detail="Usage service temporarily unavailable. Please try again later."
+                detail="Usage service temporarily unavailable."
             )
 
     # Try Gemini models
-    models_to_try = [
-        "gemini-3.8-flash",
-        "gemini-3.5-flash",
-        "gemini-3.5-flash-lite",
-    ]
+    models_to_try = list(dict.fromkeys([
+        gemini_model,
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite"
+    ]))
 
     last_error = ""
 
     for model_name in models_to_try:
+
         try:
-            print(f"Trying Gemini model: {model_name}")
+
+            print("GEMINI: Trying model:", model_name)
 
             response = client.models.generate_content(
                 model=model_name,
                 contents=(
                     "Summarize this text clearly in its original language:\n\n"
                     + request.text
-                ),
+                )
             )
 
             if response and response.text:
+
                 return {
                     "summary": response.text
                 }
 
-            last_error = f"{model_name} returned an empty response."
+            last_error = "Empty response from " + model_name
 
         except Exception as error:
-            print(f"Error with model {model_name}: {error}")
-            last_error = f"{model_name}: {error}"
+
+            print(
+                "GEMINI: Model failed:",
+                model_name,
+                repr(error)
+            )
+
+            last_error = str(error)
+
             time.sleep(0.5)
 
-    print("All Gemini models failed:", last_error)
+    print("GEMINI: All models failed:", last_error)
 
     raise HTTPException(
         status_code=502,
@@ -376,18 +480,16 @@ def summarize(
     )
 
 
-# Paddle checkout endpoint
+# --------------------------------------------------
+# PADDLE CHECKOUT
+# --------------------------------------------------
+
 @app.post("/create-checkout")
-def create_checkout(user_id: str = Depends(verify_user)):
+def create_checkout(
+    user_id: str = Depends(verify_user)
+):
 
     print("CHECKOUT: Request received")
-
-    if not paddle_api_key or not paddle_price_id:
-        print("CHECKOUT: Paddle API key or price ID is not configured")
-        raise HTTPException(
-            status_code=503,
-            detail="Paddle checkout is not configured. Please try again later."
-        )
 
     payload = {
         "items": [
@@ -413,6 +515,7 @@ def create_checkout(user_id: str = Depends(verify_user)):
     )
 
     try:
+
         with urllib.request.urlopen(
             paddle_request,
             timeout=30
@@ -421,24 +524,32 @@ def create_checkout(user_id: str = Depends(verify_user)):
             response_body = response.read().decode("utf-8")
             result = json.loads(response_body)
 
-            print("CHECKOUT: Paddle HTTP status:", response.status)
+            print(
+                "CHECKOUT: Paddle HTTP status:",
+                response.status
+            )
 
-            request_id = response.headers.get("Paddle-Request-Id")
-            print("CHECKOUT: Paddle request ID:", request_id)
+            print(
+                "CHECKOUT: Paddle request ID:",
+                response.headers.get("Paddle-Request-Id")
+            )
 
         transaction = result.get("data", {})
+
         checkout = transaction.get("checkout") or {}
+
         checkout_url = checkout.get("url")
 
         if not checkout_url:
-            print("CHECKOUT: Paddle did not return a checkout URL")
+
+            print("CHECKOUT: Missing checkout URL")
 
             raise HTTPException(
                 status_code=502,
                 detail="Paddle did not return a checkout URL."
             )
 
-        print("CHECKOUT: Checkout URL created successfully")
+        print("CHECKOUT: Checkout URL created")
 
         return {
             "checkout_url": checkout_url
@@ -451,12 +562,14 @@ def create_checkout(user_id: str = Depends(verify_user)):
             errors="replace"
         )
 
-        print("CHECKOUT: Paddle HTTP status:", error.code)
+        print("CHECKOUT: Paddle HTTP error:", error.code)
+
         print(
             "CHECKOUT: Paddle request ID:",
             error.headers.get("Paddle-Request-Id")
         )
-        print("CHECKOUT: Paddle error response:", error_body)
+
+        print("CHECKOUT: Paddle error:", error_body)
 
         raise HTTPException(
             status_code=502,
@@ -467,6 +580,7 @@ def create_checkout(user_id: str = Depends(verify_user)):
         raise
 
     except Exception as error:
+
         print("CHECKOUT: Unexpected error:", repr(error))
 
         raise HTTPException(
@@ -475,23 +589,27 @@ def create_checkout(user_id: str = Depends(verify_user)):
         )
 
 
-# Paddle webhook endpoint
+# --------------------------------------------------
+# PADDLE WEBHOOK
+# --------------------------------------------------
+
 @app.post("/paddle-webhook")
 async def paddle_webhook(request: Request):
 
-    if not paddle_webhook_secret:
-        print("WEBHOOK: PADDLE_WEBHOOK_SECRET is not configured")
-        raise HTTPException(
-            status_code=503,
-            detail="Paddle webhook is not configured."
-        )
-
-    # Read original body before parsing JSON
+    # IMPORTANT: Read the original body before parsing JSON
     raw_body = await request.body()
 
-    signature = request.headers.get("Paddle-Signature", "")
+    signature = request.headers.get(
+        "Paddle-Signature",
+        ""
+    )
 
-    if not verify_paddle_signature(raw_body, signature):
+    # Verify Paddle signature
+    if not verify_paddle_signature(
+        raw_body,
+        signature
+    ):
+
         print("WEBHOOK: Invalid signature")
 
         raise HTTPException(
@@ -501,9 +619,13 @@ async def paddle_webhook(request: Request):
 
     # Parse verified event
     try:
-        event = json.loads(raw_body.decode("utf-8"))
+
+        event = json.loads(
+            raw_body.decode("utf-8")
+        )
 
     except (json.JSONDecodeError, UnicodeDecodeError):
+
         raise HTTPException(
             status_code=400,
             detail="Invalid webhook JSON."
@@ -512,15 +634,21 @@ async def paddle_webhook(request: Request):
     event_id = event.get("event_id")
     event_type = event.get("event_type")
     occurred_at = event.get("occurred_at")
+
     data = event.get("data") or {}
 
     if not event_id or not event_type or not occurred_at:
+
         raise HTTPException(
             status_code=400,
             detail="Missing event information."
         )
 
-    print("WEBHOOK: Received", event_type, event_id)
+    print(
+        "WEBHOOK: Received",
+        event_type,
+        event_id
+    )
 
     subscription_events = {
         "subscription.created",
@@ -533,25 +661,48 @@ async def paddle_webhook(request: Request):
     }
 
     try:
+
         with get_db_connection() as conn:
             with conn.cursor() as cur:
 
-                # Find user from subscription custom_data.
-                # For later events, fall back to the saved subscription.
+                # Check duplicate event before processing
+                cur.execute("""
+                    SELECT 1
+                    FROM paddle_events
+                    WHERE event_id = %s
+                """, (event_id,))
+
+                if cur.fetchone():
+
+                    print(
+                        "WEBHOOK: Duplicate event ignored",
+                        event_id
+                    )
+
+                    return {
+                        "success": True,
+                        "duplicate": True
+                    }
+
+                # Process subscription events
                 if event_type in subscription_events:
 
                     subscription_id = data.get("id")
 
                     if not subscription_id:
+
                         raise HTTPException(
                             status_code=400,
                             detail="Subscription ID is missing."
                         )
 
                     custom_data = data.get("custom_data") or {}
+
                     user_id = custom_data.get("user_id")
 
+                    # Find user from an existing subscription
                     if not user_id:
+
                         cur.execute("""
                             SELECT user_id
                             FROM subscriptions
@@ -564,8 +715,9 @@ async def paddle_webhook(request: Request):
                             user_id = existing[0]
 
                     if not user_id:
+
                         print(
-                            "WEBHOOK: No user_id found for subscription",
+                            "WEBHOOK: User ID not found for subscription",
                             subscription_id
                         )
 
@@ -577,6 +729,7 @@ async def paddle_webhook(request: Request):
                     status = data.get("status")
 
                     if not status:
+
                         status_by_event = {
                             "subscription.activated": "active",
                             "subscription.resumed": "active",
@@ -585,17 +738,28 @@ async def paddle_webhook(request: Request):
                             "subscription.canceled": "canceled",
                         }
 
-                        status = status_by_event.get(
-                            event_type,
-                            "unknown"
+                        status = status_by_event.get(event_type)
+
+                    if not status:
+
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Subscription status is missing."
                         )
 
+                    # Get subscription price
                     items = data.get("items") or []
+
                     price_id = None
 
-                    if items:
-                        price = items[0].get("price") or {}
-                        price_id = price.get("id")
+                    for item in items:
+
+                        price = item.get("price") or {}
+
+                        if price.get("id") == paddle_price_id:
+
+                            price_id = price.get("id")
+                            break
 
                     billing_period = (
                         data.get("current_billing_period") or {}
@@ -608,34 +772,12 @@ async def paddle_webhook(request: Request):
                     )
 
                     scheduled_action = scheduled_change.get("action")
+
                     scheduled_effective_at = (
                         scheduled_change.get("effective_at")
                     )
 
-                # Save event ID only once
-                cur.execute("""
-                    INSERT INTO paddle_events (
-                        event_id,
-                        event_type
-                    )
-                    VALUES (%s, %s)
-                    ON CONFLICT (event_id) DO NOTHING
-                    RETURNING event_id
-                """, (event_id, event_type))
-
-                inserted = cur.fetchone()
-
-                if inserted is None:
-                    print("WEBHOOK: Duplicate event ignored", event_id)
-
-                    return {
-                        "success": True,
-                        "duplicate": True
-                    }
-
-                # Update subscription data
-                if event_type in subscription_events:
-
+                    # Save or update subscription
                     cur.execute("""
                         INSERT INTO subscriptions (
                             subscription_id,
@@ -678,16 +820,26 @@ async def paddle_webhook(request: Request):
                     ))
 
                     print(
-                        "WEBHOOK: Subscription saved",
+                        "WEBHOOK: Subscription processed",
                         subscription_id,
-                        status
+                        status,
+                        price_id
                     )
 
-                else:
-                    print(
-                        "WEBHOOK: Event recorded",
+                # Record successfully processed event
+                cur.execute("""
+                    INSERT INTO paddle_events (
+                        event_id,
                         event_type
                     )
+                    VALUES (%s, %s)
+                    ON CONFLICT (event_id) DO NOTHING
+                """, (event_id, event_type))
+
+                print(
+                    "WEBHOOK: Event recorded",
+                    event_type
+                )
 
         return {
             "success": True
@@ -697,7 +849,11 @@ async def paddle_webhook(request: Request):
         raise
 
     except Exception as error:
-        print("WEBHOOK: Processing failed:", repr(error))
+
+        print(
+            "WEBHOOK: Processing failed:",
+            repr(error)
+        )
 
         raise HTTPException(
             status_code=500,
