@@ -1,0 +1,264 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Sumora AI helps you turn long text into clear, concise summaries.">
+  <title>Sumora AI — Understand More. Read Less.</title>
+
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: Arial, sans-serif;
+      background: #0b1020;
+      color: #f5f6ff;
+      line-height: 1.6;
+    }
+
+    header {
+      padding: 24px 8%;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid #252c40;
+    }
+
+    .logo {
+      font-size: 25px;
+      font-weight: bold;
+      color: #a99aff;
+    }
+
+    nav a {
+      color: #c5c9da;
+      text-decoration: none;
+      margin-left: 22px;
+      font-size: 14px;
+    }
+
+    .hero {
+      text-align: center;
+      padding: 110px 20px 90px;
+      max-width: 850px;
+      margin: auto;
+    }
+
+    .tag {
+      color: #b3a4ff;
+      font-size: 13px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      font-size: clamp(42px, 7vw, 68px);
+      line-height: 1.1;
+      margin: 22px 0;
+    }
+
+    h1 span {
+      color: #a99aff;
+    }
+
+    .hero p {
+      color: #b6bdd0;
+      font-size: 18px;
+      max-width: 650px;
+      margin: 0 auto 32px;
+    }
+
+    .button {
+      display: inline-block;
+      background: #8872f5;
+      color: white;
+      padding: 14px 28px;
+      border-radius: 9px;
+      text-decoration: none;
+      font-weight: bold;
+    }
+
+    section {
+      padding: 65px 8%;
+      text-align: center;
+    }
+
+    h2 {
+      font-size: 32px;
+      margin-bottom: 15px;
+    }
+
+    .subtitle {
+      color: #aeb5ca;
+      margin-bottom: 35px;
+    }
+
+    .features {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 20px;
+      max-width: 1000px;
+      margin: auto;
+    }
+
+    .feature, .pricing {
+      background: #151c30;
+      border: 1px solid #29314b;
+      border-radius: 14px;
+      padding: 28px;
+    }
+
+    .feature h3 {
+      color: #b5a5ff;
+      margin-bottom: 12px;
+    }
+
+    .feature p, .pricing p {
+      color: #b6bdd0;
+    }
+
+    .pricing {
+      max-width: 390px;
+      margin: 30px auto;
+    }
+
+    .price {
+      font-size: 42px;
+      font-weight: bold;
+      margin: 15px 0;
+    }
+
+    .pricing ul {
+      list-style: none;
+      color: #c4c9d9;
+      text-align: left;
+      margin: 22px 0;
+    }
+
+    .pricing li {
+      margin: 10px 0;
+    }
+
+    .disclaimer {
+      font-size: 13px;
+      color: #929bb2;
+      margin-top: 18px;
+    }
+
+    footer {
+      border-top: 1px solid #252c40;
+      padding: 30px 8%;
+      text-align: center;
+      color: #929bb2;
+      font-size: 13px;
+    }
+
+    footer a {
+      color: #b5a5ff;
+      margin: 0 10px;
+    }
+
+    @media (max-width: 600px) {
+      header {
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      nav a {
+        margin: 0 8px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+
+  <header>
+    <div class="logo">Sumora AI</div>
+    <nav>
+      <a href="#features">Features</a>
+      <a href="#pricing">Pricing</a>
+      <a href="#about">About</a>
+    </nav>
+  </header>
+
+  <main>
+    <div class="hero">
+      <div class="tag">Your smarter reading companion</div>
+
+      <h1>Understand More.<br><span>Read Less.</span></h1>
+
+      <p>
+        Sumora AI transforms long and complex text into
+        clear, concise summaries, helping you save time
+        and focus on what matters.
+      </p>
+
+      <a class="button" href="#features">Explore Sumora AI</a>
+    </div>
+
+    <section id="features">
+      <h2>What Sumora AI Offers</h2>
+      <p class="subtitle">
+        Simple tools designed to make reading easier.
+      </p>
+
+      <div class="features">
+        <div class="feature">
+          <h3>AI Summarization</h3>
+          <p>Turn lengthy text into shorter, easier-to-understand summaries.</p>
+        </div>
+
+        <div class="feature">
+          <h3>Save Time</h3>
+          <p>Focus on the most important information without reading every word.</p>
+        </div>
+
+        <div class="feature">
+          <h3>Easy to Use</h3>
+          <p>Summarize selected text through a simple Chrome extension.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="pricing">
+      <h2>Simple Pricing</h2>
+      <p class="subtitle">Choose the plan that suits your needs.</p>
+
+      <div class="pricing">
+        <h3>Sumora AI Pro</h3>
+        <div class="price">$4.99 <span style="font-size:16px">/ month</span></div>
+        <p>Planned subscription for users who need more summaries.</p>
+        <p class="disclaimer">
+          Subscription availability is subject to launch and payment-provider approval.
+        </p>
+      </div>
+    </section>
+
+    <section id="about">
+      <h2>About Sumora AI</h2>
+      <p class="subtitle">
+        Sumora AI is an independent software project
+        focused on making information easier to understand.
+        AI-generated summaries may contain inaccuracies;
+        users should review important information.
+      </p>
+    </section>
+  </main>
+
+  <footer>
+    <p>© 2026 Sumora AI. All rights reserved.</p>
+    <p>
+      <a href="https://github.com/Fidan75/my-ai-extension">
+        Project & Support
+      </a>
+    </p>
+  </footer>
+
+</body>
+</html>
