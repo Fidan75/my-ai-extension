@@ -44,7 +44,7 @@ paddle_webhook_secret = (
 
 gemini_model = os.getenv(
     "GEMINI_MODEL",
-    "gemini-2.5-flash"
+    "gemini-3.8-flash"
 ).strip()
 
 
@@ -433,7 +433,7 @@ def summarize(
     models_to_try = list(dict.fromkeys([
         gemini_model,
         "gemini-2.5-flash",
-        "gemini-2.5-flash-lite"
+        "gemini-3.5-flash-lite"
     ]))
 
     last_error = ""
