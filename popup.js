@@ -5,10 +5,36 @@ const appSection = document.getElementById("appSection");
 const emailInput = document.getElementById("email");
 const passwordInput = document.getElementById("password");
 
-const API_URL = "http://127.0.0.1:8000";
+// Production Render backend
+const API_URL = "https://my-ai-extension-backend.onrender.com";
 
 function showMessage(message) {
   resultDiv.textContent = message;
+}
+
+// Retrieve and display subscription information
+async function loadUsage(token) {
+  const response = await fetch(`${API_URL}/usage`, {
+    headers: {
+      "Authorization": `Bearer ${token}`
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error("Could not retrieve subscription information.");
+  }
+
+  const data = await response.json();
+  const accountInfo = document.getElementById("accountInfo");
+
+  if (data.plan === "pro") {
+    accountInfo.textContent = "Plan: PRO | Unlimited summaries";
+  } else {
+    accountInfo.textContent =
+      `Plan: FREE | ${data.used_today}/10 summaries used today`;
+  }
+
+  return data;
 }
 
 async function updateLoginState() {
@@ -18,12 +44,19 @@ async function updateLoginState() {
   appSection.hidden = !token;
 
   if (token) {
-    document.getElementById("accountInfo").textContent =
-      "You are logged in.";
+    try {
+      await loadUsage(token);
+    } catch (error) {
+      document.getElementById("accountInfo").textContent =
+        "You are logged in.";
+      console.error(error);
+    }
+
     showMessage("Select text on a webpage, then click Summarize Text.");
   }
 }
 
+// Sign up
 document.getElementById("signupBtn").addEventListener("click", async () => {
   const email = emailInput.value.trim();
   const password = passwordInput.value;
@@ -57,6 +90,7 @@ document.getElementById("signupBtn").addEventListener("click", async () => {
   }
 });
 
+// Login
 document.getElementById("loginBtn").addEventListener("click", async () => {
   const email = emailInput.value.trim();
   const password = passwordInput.value;
@@ -76,18 +110,22 @@ document.getElementById("loginBtn").addEventListener("click", async () => {
   }
 });
 
+// Logout
 document.getElementById("logoutBtn").addEventListener("click", async () => {
   try {
     await signOut();
+
     authSection.hidden = false;
     appSection.hidden = true;
     passwordInput.value = "";
+
     showMessage("You have logged out.");
   } catch (error) {
     showMessage("Logout error: " + error.message);
   }
 });
 
+// Summarize selected text
 document.getElementById("runBtn").addEventListener("click", async () => {
   showMessage("Summarizing...");
 
@@ -138,6 +176,7 @@ document.getElementById("runBtn").addEventListener("click", async () => {
     }
 
     if (response.status === 429) {
+      await loadUsage(token);
       showMessage(
         "Daily free limit reached!\n\n" +
         (data.detail || "You have used your 10 free summaries for today.")
@@ -152,11 +191,16 @@ document.getElementById("runBtn").addEventListener("click", async () => {
     }
 
     showMessage(data.summary);
+
+    // Refresh usage after successful summary
+    await loadUsage(token);
+
   } catch (error) {
     showMessage("Error: " + error.message);
   }
 });
 
+// Upgrade to Pro
 document.getElementById("upgradeBtn").addEventListener("click", async () => {
   showMessage("Opening secure checkout...");
 
@@ -178,7 +222,11 @@ document.getElementById("upgradeBtn").addEventListener("click", async () => {
     const data = await response.json();
 
     if (!response.ok) {
-      throw new Error(data.detail || "Could not create checkout.");
+      throw new Error(
+        typeof data.detail === "string"
+          ? data.detail
+          : "Could not create checkout."
+      );
     }
 
     if (!data.checkout_url) {
@@ -187,11 +235,13 @@ document.getElementById("upgradeBtn").addEventListener("click", async () => {
 
     await chrome.tabs.create({ url: data.checkout_url });
     showMessage("Checkout page opened successfully.");
+
   } catch (error) {
     showMessage("Checkout error: " + error.message);
   }
 });
 
+// Initialize extension
 updateLoginState().catch((error) => {
   showMessage("Could not check login: " + error.message);
 });

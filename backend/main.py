@@ -1,7 +1,8 @@
-
 import os
 import time
 import json
+import hmac
+import hashlib
 import urllib.request
 import urllib.error
 
@@ -10,7 +11,7 @@ import psycopg
 
 from jwt import PyJWKClient
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
@@ -30,7 +31,12 @@ paddle_api_key = (
     .replace("\r", "")
     .strip()
 )
+
 paddle_price_id = os.getenv("PADDLE_PRICE_ID")
+paddle_webhook_secret = os.getenv(
+    "PADDLE_WEBHOOK_SECRET", ""
+).strip()
+
 
 # Check required configuration
 if not api_key:
@@ -112,11 +118,12 @@ def verify_user(
         )
 
 
-# Create database table
+# Create database tables
 @app.on_event("startup")
 def setup_database():
     with get_db_connection() as conn:
         with conn.cursor() as cur:
+
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS daily_usage (
                     user_id TEXT NOT NULL,
@@ -126,10 +133,106 @@ def setup_database():
                 )
             """)
 
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS paddle_events (
+                    event_id TEXT PRIMARY KEY,
+                    event_type TEXT NOT NULL,
+                    received_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS subscriptions (
+                    subscription_id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    price_id TEXT,
+                    current_period_end TIMESTAMPTZ,
+                    scheduled_change_action TEXT,
+                    scheduled_change_effective_at TIMESTAMPTZ,
+                    last_event_at TIMESTAMPTZ NOT NULL,
+                    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
 
 # Request model
 class SummaryRequest(BaseModel):
     text: str = Field(min_length=1, max_length=20000)
+
+
+# Check whether user has an active Pro subscription
+def is_pro_user(user_id: str) -> bool:
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM subscriptions
+                    WHERE user_id = %s
+                    AND status IN ('active', 'trialing')
+                    AND (
+                        current_period_end IS NULL
+                        OR current_period_end > CURRENT_TIMESTAMP
+                    )
+                )
+            """, (user_id,))
+
+            result = cur.fetchone()
+
+            return bool(result[0])
+
+
+# Verify Paddle webhook signature
+def verify_paddle_signature(
+    raw_body: bytes,
+    signature_header: str
+) -> bool:
+
+    if not paddle_webhook_secret:
+        print("WEBHOOK: Secret is not configured")
+        return False
+
+    if not signature_header:
+        return False
+
+    parts = {}
+
+    for item in signature_header.split(";"):
+        if "=" in item:
+            key, value = item.split("=", 1)
+            parts.setdefault(key.strip(), []).append(value.strip())
+
+    timestamps = parts.get("ts", [])
+    signatures = parts.get("h1", [])
+
+    if not timestamps or not signatures:
+        return False
+
+    timestamp = timestamps[0]
+
+    try:
+        event_timestamp = int(timestamp)
+    except ValueError:
+        return False
+
+    # Reject old or future-dated requests
+    if abs(time.time() - event_timestamp) > 300:
+        print("WEBHOOK: Signature timestamp outside allowed window")
+        return False
+
+    signed_payload = timestamp.encode("utf-8") + b":" + raw_body
+
+    expected_signature = hmac.new(
+        paddle_webhook_secret.encode("utf-8"),
+        signed_payload,
+        hashlib.sha256
+    ).hexdigest()
+
+    return any(
+        hmac.compare_digest(expected_signature, signature)
+        for signature in signatures
+    )
 
 
 # Home endpoint
@@ -140,10 +243,12 @@ def home():
     }
 
 
-# Get daily usage
+# Get daily usage and plan
 @app.get("/usage")
 def get_usage(user_id: str = Depends(verify_user)):
     try:
+        pro = is_pro_user(user_id)
+
         with get_db_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
@@ -157,7 +262,8 @@ def get_usage(user_id: str = Depends(verify_user)):
 
                 return {
                     "used_today": result[0] if result else 0,
-                    "daily_limit": 10
+                    "daily_limit": None if pro else 10,
+                    "plan": "pro" if pro else "free"
                 }
 
     except Exception as error:
@@ -175,37 +281,54 @@ def summarize(
     request: SummaryRequest,
     user_id: str = Depends(verify_user)
 ):
-    # Check daily limit
+    # Check Pro status
     try:
-        with get_db_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    INSERT INTO daily_usage (user_id, usage_date, count)
-                    VALUES (%s, CURRENT_DATE, 1)
-                    ON CONFLICT (user_id, usage_date)
-                    DO UPDATE SET count = daily_usage.count + 1
-                    WHERE daily_usage.count < 10
-                    RETURNING count
-                """, (user_id,))
-
-                result = cur.fetchone()
-
-                if result is None:
-                    raise HTTPException(
-                        status_code=429,
-                        detail="Free limit reached (10 summaries/day)."
-                    )
-
-    except HTTPException:
-        raise
+        pro = is_pro_user(user_id)
 
     except Exception as error:
-        print("Database usage check failed:", str(error))
+        print("Subscription check failed:", str(error))
 
         raise HTTPException(
             status_code=503,
-            detail="Usage service temporarily unavailable. Please try again later."
+            detail="Could not verify subscription status."
         )
+
+    # Free users have a daily limit of 10
+    if not pro:
+        try:
+            with get_db_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        INSERT INTO daily_usage (
+                            user_id,
+                            usage_date,
+                            count
+                        )
+                        VALUES (%s, CURRENT_DATE, 1)
+                        ON CONFLICT (user_id, usage_date)
+                        DO UPDATE SET count = daily_usage.count + 1
+                        WHERE daily_usage.count < 10
+                        RETURNING count
+                    """, (user_id,))
+
+                    result = cur.fetchone()
+
+                    if result is None:
+                        raise HTTPException(
+                            status_code=429,
+                            detail="Free limit reached (10 summaries/day)."
+                        )
+
+        except HTTPException:
+            raise
+
+        except Exception as error:
+            print("Database usage check failed:", str(error))
+
+            raise HTTPException(
+                status_code=503,
+                detail="Usage service temporarily unavailable. Please try again later."
+            )
 
     # Try Gemini models
     models_to_try = [
@@ -297,7 +420,6 @@ def create_checkout(user_id: str = Depends(verify_user)):
 
         if not checkout_url:
             print("CHECKOUT: Paddle did not return a checkout URL")
-            print("CHECKOUT: Paddle response:", result)
 
             raise HTTPException(
                 status_code=502,
@@ -338,4 +460,227 @@ def create_checkout(user_id: str = Depends(verify_user)):
         raise HTTPException(
             status_code=500,
             detail="Could not create checkout."
+        )
+
+
+# Paddle webhook endpoint
+@app.post("/paddle-webhook")
+async def paddle_webhook(request: Request):
+
+    # Read original body before parsing JSON
+    raw_body = await request.body()
+
+    signature = request.headers.get("Paddle-Signature", "")
+
+    if not verify_paddle_signature(raw_body, signature):
+        print("WEBHOOK: Invalid signature")
+
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid Paddle signature."
+        )
+
+    # Parse verified event
+    try:
+        event = json.loads(raw_body.decode("utf-8"))
+
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid webhook JSON."
+        )
+
+    event_id = event.get("event_id")
+    event_type = event.get("event_type")
+    occurred_at = event.get("occurred_at")
+    data = event.get("data") or {}
+
+    if not event_id or not event_type or not occurred_at:
+        raise HTTPException(
+            status_code=400,
+            detail="Missing event information."
+        )
+
+    print("WEBHOOK: Received", event_type, event_id)
+
+    subscription_events = {
+        "subscription.created",
+        "subscription.activated",
+        "subscription.updated",
+        "subscription.canceled",
+        "subscription.past_due",
+        "subscription.paused",
+        "subscription.resumed",
+    }
+
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+
+                # Find user from subscription custom_data.
+                # For later events, fall back to the saved subscription.
+                if event_type in subscription_events:
+
+                    subscription_id = data.get("id")
+
+                    if not subscription_id:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Subscription ID is missing."
+                        )
+
+                    custom_data = data.get("custom_data") or {}
+                    user_id = custom_data.get("user_id")
+
+                    if not user_id:
+                        cur.execute("""
+                            SELECT user_id
+                            FROM subscriptions
+                            WHERE subscription_id = %s
+                        """, (subscription_id,))
+
+                        existing = cur.fetchone()
+
+                        if existing:
+                            user_id = existing[0]
+
+                    if not user_id:
+                        print(
+                            "WEBHOOK: No user_id found for subscription",
+                            subscription_id
+                        )
+
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Subscription user ID is missing."
+                        )
+
+                    status = data.get("status")
+
+                    if not status:
+                        status_by_event = {
+                            "subscription.activated": "active",
+                            "subscription.resumed": "active",
+                            "subscription.paused": "paused",
+                            "subscription.past_due": "past_due",
+                            "subscription.canceled": "canceled",
+                        }
+
+                        status = status_by_event.get(
+                            event_type,
+                            "unknown"
+                        )
+
+                    items = data.get("items") or []
+                    price_id = None
+
+                    if items:
+                        price = items[0].get("price") or {}
+                        price_id = price.get("id")
+
+                    billing_period = (
+                        data.get("current_billing_period") or {}
+                    )
+
+                    current_period_end = billing_period.get("ends_at")
+
+                    scheduled_change = (
+                        data.get("scheduled_change") or {}
+                    )
+
+                    scheduled_action = scheduled_change.get("action")
+                    scheduled_effective_at = (
+                        scheduled_change.get("effective_at")
+                    )
+
+                # Save event ID only once
+                cur.execute("""
+                    INSERT INTO paddle_events (
+                        event_id,
+                        event_type
+                    )
+                    VALUES (%s, %s)
+                    ON CONFLICT (event_id) DO NOTHING
+                    RETURNING event_id
+                """, (event_id, event_type))
+
+                inserted = cur.fetchone()
+
+                if inserted is None:
+                    print("WEBHOOK: Duplicate event ignored", event_id)
+
+                    return {
+                        "success": True,
+                        "duplicate": True
+                    }
+
+                # Update subscription data
+                if event_type in subscription_events:
+
+                    cur.execute("""
+                        INSERT INTO subscriptions (
+                            subscription_id,
+                            user_id,
+                            status,
+                            price_id,
+                            current_period_end,
+                            scheduled_change_action,
+                            scheduled_change_effective_at,
+                            last_event_at,
+                            updated_at
+                        )
+                        VALUES (
+                            %s, %s, %s, %s, %s, %s, %s, %s,
+                            CURRENT_TIMESTAMP
+                        )
+                        ON CONFLICT (subscription_id)
+                        DO UPDATE SET
+                            user_id = EXCLUDED.user_id,
+                            status = EXCLUDED.status,
+                            price_id = EXCLUDED.price_id,
+                            current_period_end = EXCLUDED.current_period_end,
+                            scheduled_change_action =
+                                EXCLUDED.scheduled_change_action,
+                            scheduled_change_effective_at =
+                                EXCLUDED.scheduled_change_effective_at,
+                            last_event_at = EXCLUDED.last_event_at,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE subscriptions.last_event_at
+                            <= EXCLUDED.last_event_at
+                    """, (
+                        subscription_id,
+                        user_id,
+                        status,
+                        price_id,
+                        current_period_end,
+                        scheduled_action,
+                        scheduled_effective_at,
+                        occurred_at
+                    ))
+
+                    print(
+                        "WEBHOOK: Subscription saved",
+                        subscription_id,
+                        status
+                    )
+
+                else:
+                    print(
+                        "WEBHOOK: Event recorded",
+                        event_type
+                    )
+
+        return {
+            "success": True
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as error:
+        print("WEBHOOK: Processing failed:", repr(error))
+
+        raise HTTPException(
+            status_code=500,
+            detail="Webhook processing failed."
         )
