@@ -128,3 +128,33 @@ async function signOut() {
     "supabaseRefreshToken"
   ]);
 }
+
+async function resetPassword(email) {
+  const redirectTo =
+    "https://my-ai-extension-backend.onrender.com/reset-password";
+
+  const response = await fetch(
+    `${SUPABASE_AUTH_URL}/recover?redirect_to=${encodeURIComponent(redirectTo)}`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "apikey": SUPABASE_PUBLISHABLE_KEY
+      },
+      body: JSON.stringify({ email })
+    }
+  );
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(
+      data.msg ||
+      data.message ||
+      data.error_description ||
+      "Password recovery request failed."
+    );
+  }
+
+  return data;
+}

@@ -110,6 +110,25 @@ document.getElementById("loginBtn").addEventListener("click", async () => {
   }
 });
 
+// Forgot Password
+document.getElementById("forgotPasswordBtn").addEventListener("click", async () => {
+  const email = emailInput.value.trim();
+
+  if (!email) {
+    showMessage("Please enter your email address first.");
+    return;
+  }
+
+  showMessage("Sending password recovery email...");
+
+  try {
+    await resetPassword(email);
+    showMessage("If an account exists for this email, a password recovery email will be sent. Check your inbox.");
+  } catch (error) {
+    showMessage("Password recovery error: " + error.message);
+  }
+});
+
 // Logout
 document.getElementById("logoutBtn").addEventListener("click", async () => {
   try {
