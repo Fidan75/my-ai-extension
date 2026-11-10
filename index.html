@@ -4,7 +4,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="Sumora AI helps you turn long text into clear, concise summaries.">
+
+  <meta
+    name="description"
+    content="Sumora AI helps you turn long text into clear, concise summaries."
+  >
+
   <title>Sumora AI — Understand More. Read Less.</title>
 
   <style>
@@ -35,11 +40,20 @@
       color: #a99aff;
     }
 
+    nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+    }
+
     nav a {
       color: #c5c9da;
       text-decoration: none;
-      margin-left: 22px;
       font-size: 14px;
+    }
+
+    nav a:hover {
+      color: #a99aff;
     }
 
     .hero {
@@ -81,6 +95,11 @@
       border-radius: 9px;
       text-decoration: none;
       font-weight: bold;
+      transition: background 0.2s ease;
+    }
+
+    .button:hover {
+      background: #725ce0;
     }
 
     section {
@@ -106,7 +125,8 @@
       margin: auto;
     }
 
-    .feature, .pricing {
+    .feature,
+    .pricing {
       background: #151c30;
       border: 1px solid #29314b;
       border-radius: 14px;
@@ -118,7 +138,8 @@
       margin-bottom: 12px;
     }
 
-    .feature p, .pricing p {
+    .feature p,
+    .pricing p {
       color: #b6bdd0;
     }
 
@@ -169,21 +190,43 @@
     }
 
     .footer-links {
-      margin-top: 12px;
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 15px;
     }
 
     .support {
-      margin-top: 12px;
+      margin-top: 15px;
     }
 
     @media (max-width: 600px) {
       header {
         flex-direction: column;
-        gap: 12px;
+        gap: 15px;
       }
 
-      nav a {
-        margin: 0 8px;
+      nav {
+        justify-content: center;
+        gap: 15px;
+      }
+
+      .hero {
+        padding: 75px 20px;
+      }
+
+      section {
+        padding: 50px 6%;
+      }
+
+      h2 {
+        font-size: 27px;
+      }
+
+      .footer-links {
+        flex-direction: column;
+        gap: 10px;
       }
     }
   </style>
@@ -193,7 +236,8 @@
 
   <header>
     <div class="logo">Sumora AI</div>
-    <nav>
+
+    <nav aria-label="Main navigation">
       <a href="#features">Features</a>
       <a href="#pricing">Pricing</a>
       <a href="#about">About</a>
@@ -201,10 +245,14 @@
   </header>
 
   <main>
+
     <div class="hero">
       <div class="tag">Your smarter reading companion</div>
 
-      <h1>Understand More.<br><span>Read Less.</span></h1>
+      <h1>
+        Understand More.<br>
+        <span>Read Less.</span>
+      </h1>
 
       <p>
         Sumora AI transforms long and complex text into
@@ -212,49 +260,76 @@
         and focus on what matters.
       </p>
 
-      <a class="button" href="#features">Explore Sumora AI</a>
+      <a class="button" href="#features">
+        Explore Sumora AI
+      </a>
     </div>
 
     <section id="features">
       <h2>What Sumora AI Offers</h2>
+
       <p class="subtitle">
         Simple tools designed to make reading easier.
       </p>
 
       <div class="features">
+
         <div class="feature">
           <h3>AI Summarization</h3>
-          <p>Turn lengthy text into shorter, easier-to-understand summaries.</p>
+          <p>
+            Turn lengthy text into shorter,
+            easier-to-understand summaries.
+          </p>
         </div>
 
         <div class="feature">
           <h3>Save Time</h3>
-          <p>Focus on the most important information without reading every word.</p>
+          <p>
+            Focus on the most important information
+            without reading every word.
+          </p>
         </div>
 
         <div class="feature">
           <h3>Easy to Use</h3>
-          <p>Summarize selected text through a simple Chrome extension.</p>
+          <p>
+            Summarize selected text through
+            a simple Chrome extension.
+          </p>
         </div>
+
       </div>
     </section>
 
     <section id="pricing">
       <h2>Simple Pricing</h2>
-      <p class="subtitle">Choose the plan that suits your needs.</p>
+
+      <p class="subtitle">
+        Choose the plan that suits your needs.
+      </p>
 
       <div class="pricing">
         <h3>Sumora AI Pro</h3>
-        <div class="price">$4.99 <span style="font-size:16px">/ month</span></div>
-        <p>Planned subscription for users who need more summaries.</p>
+
+        <div class="price">
+          $4.99 <span style="font-size:16px">/ month</span>
+        </div>
+
+        <p>
+          Planned subscription for users
+          who need more summaries.
+        </p>
+
         <p class="disclaimer">
-          Subscription availability is subject to launch and payment-provider approval.
+          Subscription availability is subject
+          to launch and payment-provider approval.
         </p>
       </div>
     </section>
 
     <section id="about">
       <h2>About Sumora AI</h2>
+
       <p class="subtitle">
         Sumora AI is an independent software project
         focused on making information easier to understand.
@@ -262,14 +337,28 @@
         users should review important information.
       </p>
     </section>
+
   </main>
 
   <footer>
+
     <p>© 2026 Sumora AI. All rights reserved.</p>
 
     <div class="footer-links">
       <a href="https://github.com/Fidan75/my-ai-extension">
         Project
+      </a>
+
+      <a href="privacy.html">
+        Privacy Policy
+      </a>
+
+      <a href="terms.html">
+        Terms & Conditions
+      </a>
+
+      <a href="refund.html">
+        Refund Policy
       </a>
 
       <a href="mailto:sumoraaisupport@gmail.com">
@@ -280,15 +369,8 @@
     <p class="support">
       Support: sumoraaisupport@gmail.com
     </p>
-  </footer>
 
-  <div class="footer-links">
-  <a href="privacy.html">Privacy Policy</a>
-  <a href="terms.html">Terms & Conditions</a>
-  <a href="refund.html">Refund Policy</a>
-  <a href="mailto:sumoraaisupport@gmail.com">Contact Support</a>
-</div>
-  
+  </footer>
 
 </body>
 </html>
