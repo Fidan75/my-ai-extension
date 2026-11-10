@@ -13,6 +13,7 @@ import psycopg
 from jwt import PyJWKClient
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Depends, Request
+from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
@@ -307,17 +308,127 @@ def verify_paddle_signature(
     )
 
 
+
+# --------------------------------------------------
+# PASSWORD RESET PAGE
+# --------------------------------------------------
+
+@app.get("/reset-password", response_class=HTMLResponse)
+def reset_password_page():
+    return """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Reset Sumora Password</title>
+    </head>
+    <body>
+        <h2>Reset your Sumora password</h2>
+
+        <form id="resetForm">
+            <input
+                type="password"
+                id="password"
+                placeholder="Enter new password"
+                minlength="6"
+                required
+            >
+
+            <button type="submit">Update Password</button>
+        </form>
+
+        <p id="message"></p>
+
+        <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+        <script>
+            const SUPABASE_URL =
+                "https://qjcnhwvrmierkoexurlk.supabase.co";
+
+            const SUPABASE_KEY =
+                "sb_publishable_rGEdTRSC9ugHRKIK88S8Hg_atmXg_NW";
+
+            const client = supabase.createClient(
+                SUPABASE_URL,
+                SUPABASE_KEY
+            );
+
+            const message = document.getElementById("message");
+
+            async function initializeRecovery() {
+                const params = new URLSearchParams(
+                    window.location.hash.substring(1)
+                );
+
+                const accessToken = params.get("access_token");
+                const refreshToken = params.get("refresh_token");
+                const type = params.get("type");
+
+                if (type !== "recovery" || !accessToken || !refreshToken) {
+                    message.textContent =
+                        "Invalid or expired password recovery link. Request a new one.";
+                    return;
+                }
+
+                const { error } = await client.auth.setSession({
+                    access_token: accessToken,
+                    refresh_token: refreshToken
+                });
+
+                if (error) {
+                    message.textContent = error.message;
+                    return;
+                }
+
+                document.getElementById("resetForm").hidden = false;
+                message.textContent = "Enter your new password.";
+            }
+
+            document.getElementById("resetForm").hidden = true;
+
+            document.getElementById("resetForm")
+                .addEventListener("submit", async (event) => {
+                    event.preventDefault();
+
+                    const password =
+                        document.getElementById("password").value;
+
+                    if (password.length < 6) {
+                        message.textContent =
+                            "Password must contain at least 6 characters.";
+                        return;
+                    }
+
+                    const { error } = await client.auth.updateUser({
+                        password: password
+                    });
+
+                    if (error) {
+                        message.textContent = error.message;
+                    } else {
+                        message.textContent =
+                            "Password updated successfully! You can return to Sumora and log in.";
+                        document.getElementById("resetForm").hidden = true;
+                    }
+                });
+
+            initializeRecovery();
+        </script>
+    </body>
+    </html>
+    """
+
+
 # --------------------------------------------------
 # HOME
 # --------------------------------------------------
 
 @app.get("/")
 def home():
-
     return {
         "message": "AI Summarizer backend is running"
     }
-
 
 # --------------------------------------------------
 # GET USER USAGE
