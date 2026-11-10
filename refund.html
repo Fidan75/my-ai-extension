@@ -1,4 +1,4 @@
-
+```html
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -25,12 +25,16 @@
     h1, h2 { color: #fff; }
     a { color: #8ab4ff; }
     .date { color: #aab3c5; }
+    @media (max-width: 600px) {
+      main { padding: 22px; }
+      body { padding: 20px 12px; }
+    }
   </style>
 </head>
 <body>
 <main>
   <h1>Refund Policy</h1>
-  <p class="date">Last updated: November 9, 2026</p>
+  <p class="date">Last updated: November 10, 2026</p>
 
   <p>
     This Refund Policy explains how refund requests for paid
@@ -39,35 +43,53 @@
 
   <h2>1. Subscription Payments</h2>
   <p>
-    If paid subscriptions become available, payment details and
-    subscription terms will be displayed before checkout.
+    If paid subscriptions become available, payment details,
+    subscription prices, billing periods, and applicable terms
+    will be displayed before checkout.
+  </p>
+
+  <p>
+    Payment processing and subscription management may be
+    provided by Paddle or another designated payment provider.
   </p>
 
   <h2>2. Refund Requests</h2>
   <p>
-    If you believe you have been charged incorrectly, or experience
-    a billing issue, contact us with your account email and relevant
-    transaction details.
+    If you believe you have been charged incorrectly or experience
+    a billing issue, contact us at our support email address.
+  </p>
+
+  <p>
+    Please include your account email and relevant transaction
+    reference so that we can identify the payment.
+    Never send your password or full payment card details.
   </p>
 
   <h2>3. Review of Requests</h2>
   <p>
     Refund requests will be reviewed individually, taking into
-    account the circumstances of the purchase and applicable
-    consumer protection laws.
+    account the circumstances of the purchase, the applicable
+    payment provider's procedures, and applicable consumer
+    protection laws.
   </p>
+
   <p>
-    Nothing in this policy limits any mandatory refund or
-    cancellation rights you may have under applicable law.
+    Nothing in this policy limits any mandatory refund,
+    cancellation, or other consumer rights you may have
+    under applicable law.
   </p>
 
   <h2>4. Subscription Cancellation</h2>
   <p>
-    If recurring subscriptions are offered, cancellation instructions
-    will be provided through the applicable subscription or payment
-    management process. Cancelling a subscription generally prevents
-    future renewals; it does not automatically mean a refund for
-    a previous payment.
+    If recurring subscriptions are offered, cancellation
+    instructions will be provided through the applicable
+    subscription or payment management process.
+  </p>
+
+  <p>
+    Cancelling a subscription generally prevents future renewals.
+    Cancellation does not automatically mean that a refund will
+    be issued for a previous payment.
   </p>
 
   <h2>5. Contact Us</h2>
@@ -82,3 +104,4 @@
 </main>
 </body>
 </html>
+```
